@@ -122,19 +122,18 @@ let get_user_id = (req) => {
 
 }
 
-let update_user = (user_id, req, res) => {
+let update_user = (user_id, new_user_properties, current_user) => {
   return new Promise ( (resolve, reject) => {
-
-    const current_user = res.locals.user
 
     // prevent users from modifying other users
     if(!current_user.admin && current_user._id !== user_id.toString() ) {
-      reject({code: 403, message: `Cannot modify another user`})
+      return reject({code: 403, message: `Cannot modify another user`})
     }
 
     // Prevent users from modifying certain fields
     let customizable_fields = [
       'display_name',
+      'password_hashed',
     ]
 
     // Adding customizable fields for administrators
@@ -147,7 +146,7 @@ let update_user = (user_id, req, res) => {
     }
 
     let unauthorized_attempts = []
-    for (let [key, value] of Object.entries(req.body)) {
+    for (let [key, value] of Object.entries(new_user_properties)) {
       if(!customizable_fields.includes(key)) {
         unauthorized_attempts.push(key)
       }
@@ -161,7 +160,7 @@ let update_user = (user_id, req, res) => {
     .then( db => {
 
       const query = { _id: user_id }
-      const action = {$set: req.body}
+      const action = {$set: new_user_properties}
 
       db.db(mongodb.db)
       .collection(mongodb.collection)
@@ -178,6 +177,24 @@ let update_user = (user_id, req, res) => {
       })
     })
     .catch( error => { reject(error) } )
+  })
+}
+
+let check_password = (password_plain, user) => {
+  return new Promise ( (resolve, reject) => {
+
+    const password_hashed = user.password_hashed
+
+    bcrypt.compare(password_plain, password_hashed, (error, password_correct) => {
+
+      if(error) return reject({code: 500, message: error})
+
+      if(!password_correct) return reject({code: 403, message: `Incorrect password`})
+
+      resolve(user)
+
+    })
+
   })
 }
 
@@ -209,8 +226,11 @@ exports.get_users = (req, res) => {
 
 }
 
+
+
 exports.create_user = (req, res) => {
 
+  // Could do a better job at parsing that
   const username = req.body.username
   const email_address = req.body.email_address
   const password_plain = req.body.password
@@ -231,7 +251,6 @@ exports.create_user = (req, res) => {
 
   find_user(username || email_address)
   .then( user => {
-    // Using throw might not be the best way
     if(user) throw {code: 400, message: 'User already exists'}
     return hash_password(password_plain)
   })
@@ -270,24 +289,83 @@ exports.delete_user = (req, res) => {
   .catch( error => { error_handling(error, res) })
 }
 
-
-
 exports.update_user = (req, res) => {
+
+  const new_user_properties = req.body
+  const current_user = res.locals.user
+
   get_user_id(req)
-  .then( user_id => { return update_user(user_id, req, res) })
+  .then( user_id => {
+    return update_user(user_id, new_user_properties, current_user)
+  })
   .then( result => { res.send(result) } )
   .catch( error => { error_handling(error, res) })
 }
 
 exports.update_password = (req, res) => {
-  res.send('Not implemented')
+
+  const current_user = res.locals.user
+
+  let target_user_id = null // made global to access in further scopes
+
+  get_user_id(req)
+  .then( user_id => {
+    // Finding user in the DB
+
+    // scope extraction
+    target_user_id = user_id
+
+    // prevent users from modifying other users
+    if(!current_user.admin && current_user._id !== user_id.toString() ) {
+      throw {code: 400, message: `Not allowed to modify another user`}
+    }
+
+    return find_user(user_id)
+
+  })
+
+  .then( user => {
+    // Checking current password
+
+    const current_password_plain = req.body.current_password
+
+    // guard against missing current password
+    if(!current_password_plain) throw {code: 400, message: `Current password not provided`}
+    let password_hashed = user.password_hashed
+    return check_password(current_password_plain, user)
+  })
+  .then( user => {
+    // Hashing new password
+
+    const new_password_plain = req.body.new_password
+    const new_password_confirm = req.body.new_password_confirm
+
+    if(!new_password_plain) throw {code: 400, message: `New password not provided`}
+    if(!new_password_confirm) throw {code: 400, message: `New password confirm not provided`}
+    if(new_password_confirm !== new_password_plain) {
+      throw {code: 400, message: `New password confirm does not match new password`}
+    }
+
+    // Add more conditions on password here
+
+    return hash_password(new_password_plain)
+  })
+  .then( password_hashed => {
+    // Updating user with new password
+
+    const new_user_properties = {password_hashed: password_hashed}
+    return update_user(target_user_id, new_user_properties, current_user)
+  })
+  .then( result => {res.send(result)})
+  .catch( error => { error_handling(error, res) })
+
 }
 
 
 
 
 // Administrator acccount creation
-let create_admin = () => {
+exports.create_admin = () => {
 
   const admin_username = 'admin'
 
@@ -312,8 +390,6 @@ let create_admin = () => {
 
   })
   .then( result => { console.log(`[MongoDB] Admin account created`) })
-  .catch(error => { console.log(`[MongoDB] ${error.message || error}`) })
+  .catch( error => { console.log(`[MongoDB] ${error.message || error}`) })
 
 }
-
-create_admin()

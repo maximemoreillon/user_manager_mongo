@@ -7,6 +7,9 @@ const dotenv = require('dotenv')
 // Parse .env file
 dotenv.config()
 
+// Create admin account if it does not exist
+require('./controllers/users.js').create_admin()
+
 let APP_PORT = process.env.APP_PORT || 80
 
 // Instanciate an express server
