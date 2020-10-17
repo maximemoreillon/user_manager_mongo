@@ -4,6 +4,10 @@ const mongodb = require('../mongodb.js')
 
 dotenv.config()
 
+let error_handling = (error, res) => {
+  console.log(error.message || error)
+  res.status(error.code || 500).send(error.message || error)
+}
 
 let hash_password = (password_plain) => {
   return new Promise ( (resolve, reject) => {
@@ -16,7 +20,6 @@ let hash_password = (password_plain) => {
 }
 
 let db_connection = () => {
-  // Might not be used
   return new Promise ( (resolve, reject) => {
     mongodb.MongoClient.connect( mongodb.url, mongodb.options, (err, db) => {
       if (err) return reject({code: 500, message: `Error conecting to the database`})
@@ -119,7 +122,68 @@ let get_user_id = (req) => {
 
 }
 
+let update_user = (user_id, req, res) => {
+  return new Promise ( (resolve, reject) => {
+
+    const current_user = res.locals.user
+
+    // prevent users from modifying other users
+    if(!current_user.admin && current_user._id !== user_id.toString() ) {
+      reject({code: 403, message: `Cannot modify another user`})
+    }
+
+    // Prevent users from modifying certain fields
+    let customizable_fields = [
+      'display_name',
+    ]
+
+    // Adding customizable fields for administrators
+    if(current_user.admin) {
+      customizable_fields = [
+        ...customizable_fields,
+        'admin',
+        'locked',
+      ]
+    }
+
+    let unauthorized_attempts = []
+    for (let [key, value] of Object.entries(req.body)) {
+      if(!customizable_fields.includes(key)) {
+        unauthorized_attempts.push(key)
+      }
+    }
+
+    if(unauthorized_attempts.length > 0) {
+      return reject({code: 403, message: `The following fields cannot be modified: ${unauthorized_attempts.join(', ')}`})
+    }
+
+    db_connection()
+    .then( db => {
+
+      const query = { _id: user_id }
+      const action = {$set: req.body}
+
+      db.db(mongodb.db)
+      .collection(mongodb.collection)
+      .updateOne(query, action, (error, result) => {
+
+        db.close()
+
+        if (error) return reject({code: 500, message: `Error updating user ${user_id}`})
+
+        resolve(`User ${user_id} updated`)
+
+        console.log(`[MongoDB] User ${user_id} updated`)
+
+      })
+    })
+    .catch( error => { reject(error) } )
+  })
+}
+
 exports.get_users = (req, res) => {
+
+  const limit = req.query.limit || 0
 
   db_connection()
   .then( db => {
@@ -127,28 +191,21 @@ exports.get_users = (req, res) => {
     db.db(mongodb.db)
     .collection(mongodb.collection)
     .find({})
-    .limit(0)
+    .limit(limit)
     .toArray((error, users) => {
 
       // Close the connection to the DB
       db.close()
 
       // Handle DB errors
-      if (error) {
-        console.log(error)
-        res.status(500).send(`Error retrieving users`)
-        return
-      }
+      if (error) throw {code: 500, message: error}
 
       res.send(users)
 
     })
 
   })
-  .catch( error => {
-    console.log(error)
-    res.status(500).send(`Error connecting to the database`)
-  } )
+  .catch( error => { error_handling(error, res) })
 
 }
 
@@ -175,7 +232,7 @@ exports.create_user = (req, res) => {
   find_user(username || email_address)
   .then( user => {
     // Using throw might not be the best way
-    if(user) throw 'User already exists'
+    if(user) throw {code: 400, message: 'User already exists'}
     return hash_password(password_plain)
   })
   .then( password_hashed => {
@@ -190,10 +247,7 @@ exports.create_user = (req, res) => {
 
   })
   .then( result => { res.send('OK') })
-  .catch(error => {
-    console.log(error.message || error)
-    res.status(error.code || 500).send(error.message || error)
-  })
+  .catch( error => { error_handling(error, res) })
 
 }
 
@@ -202,36 +256,32 @@ exports.get_user = (req, res) => {
   get_user_id(req)
   .then( user_id => { return find_user(user_id) } )
   .then( user => {
-    if(!user) throw 'User not found'
+    if(!user) throw {code: 400, message: `User not found`}
     res.send(user)
-  } )
-  .catch( error => {
-    console.log(error.message || error)
-    res.status(error.code || 500).send(error.message || error)
   })
+  .catch( error => { error_handling(error, res) })
 
 }
 
 exports.delete_user = (req, res) => {
-
   get_user_id(req)
   .then( user_id => { return delete_user(user_id) } )
   .then( result => { res.send(result) } )
-  .catch( error => {
-    console.log(error.message || error)
-    res.status(error.code || 500).send(error.message || error)
-  })
-
+  .catch( error => { error_handling(error, res) })
 }
 
-exports.replace_user = (req, res) => {
-  res.send('Not implemented')
-}
+
 
 exports.update_user = (req, res) => {
-  res.send('Not implemented')
+  get_user_id(req)
+  .then( user_id => { return update_user(user_id, req, res) })
+  .then( result => { res.send(result) } )
+  .catch( error => { error_handling(error, res) })
 }
 
+exports.update_password = (req, res) => {
+  res.send('Not implemented')
+}
 
 
 

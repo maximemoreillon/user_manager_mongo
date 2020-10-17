@@ -3,7 +3,6 @@ const express = require('express')
 const bodyParser = require('body-parser')
 const cors = require('cors')
 const dotenv = require('dotenv')
-const router = require('./routers/router.js')
 
 // Parse .env file
 dotenv.config()
@@ -18,8 +17,8 @@ app.use(cors())
 app.use(bodyParser.json())
 
 // Use the router
-app.use('/', router)
-
+app.use('/', require('./routers/home.js'))
+app.use('/users', require('./routers/users.js'))
 
 // Start listening on APP_PORT
 app.listen(APP_PORT, () => {
