@@ -8,6 +8,7 @@
 | /users/{user_id} | GET | - | Get the user with the given user ID |
 | /users/{user_id} | DELETE | - | Delete user with the given user ID |
 | /users/{user_id} | PATCH | new user properties | Update user with the given user ID |
+| /users/{user_id}/password | PUT | current password, new_password, new_password_confirm | Updatethe password of user with the given user ID |
 
 
 ## Environment variables

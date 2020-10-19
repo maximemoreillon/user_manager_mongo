@@ -9,6 +9,7 @@ let error_handling = (error, res) => {
   res.status(error.code || 500).send(error.message || error)
 }
 
+
 let hash_password = (password_plain) => {
   return new Promise ( (resolve, reject) => {
     bcrypt.hash(password_plain, 10, (error, password_hashed) => {
@@ -18,6 +19,10 @@ let hash_password = (password_plain) => {
     })
   })
 }
+
+
+
+
 
 let db_connection = () => {
   return new Promise ( (resolve, reject) => {
@@ -265,7 +270,7 @@ exports.create_user = (req, res) => {
     return insert_user(user)
 
   })
-  .then( result => { res.send('OK') })
+  .then( result => { res.send(result) })
   .catch( error => { error_handling(error, res) })
 
 }
