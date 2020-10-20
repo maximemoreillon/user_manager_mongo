@@ -3,6 +3,7 @@
 ## API
 | Route | Method | query/body | Description |
 | --- | --- | --- | --- |
+| /info | GET | - | Show application configuration |
 | /users | GET | limit | Get the list of users |
 | /users | POST | user properties | Creates a user. Mandatory properties are username (or email_address) and password |
 | /users/{user_id} | GET | - | Get the user with the given user ID |
