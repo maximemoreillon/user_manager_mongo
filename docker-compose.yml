@@ -2,13 +2,11 @@ version: "3.3"
 
 services:
 
-  # MongoDB
   mongo:
     logging:
       driver: none
     image: mongo
 
-  # Camera handling service
   user-manager:
     image: moreillon/user-manager-mongo
     environment:
@@ -17,8 +15,6 @@ services:
       MONGODB_COLLECTION: users
       AUTHENTICATION_API_URL: http://authentication
       DEFAULT_ADMIN_PASSWORD: admin
-    ports:
-      - "6001:80"
 
   authentication:
     image: moreillon/authentication-mongo
@@ -27,15 +23,20 @@ services:
       MONGODB_DB: user_manager_example
       MONGODB_COLLECTION: users
       JWT_SECRET: keyboardcat
-    ports:
-      - "6002:80"
 
   user-manager-front:
     image: moreillon/user-manager-mongo-front
     logging:
       driver: none
     environment:
-      VUE_APP_USER_MANAGER_API_URL: http://192.168.1.2:6001
-      VUE_APP_AUTHENTICATION_API_URL: http://192.168.1.2:6002
+      VUE_APP_USER_MANAGER_API_URL: /proxy/user-manager
+      VUE_APP_AUTHENTICATION_API_URL: /proxy/authentication
+
+  api-proxy:
+    image: moreillon/api-proxy
+    environment:
+      PROXY_ROOT: http://user-manager-front
+      PROXY_AUTHENTICATION: http://authentication
+      PROXY_USER_MANAGER: http://user-manager
     ports:
-      - "6003:80"
+      - 7539:80
