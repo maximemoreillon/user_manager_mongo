@@ -4,13 +4,13 @@ const mongodb = require('../mongodb.js')
 
 dotenv.config()
 
-let error_handling = (error, res) => {
+const error_handling = (error, res) => {
   console.log(error.message || error)
   res.status(error.code || 500).send(error.message || error)
 }
 
 
-let hash_password = (password_plain) => {
+const hash_password = (password_plain) => {
   return new Promise ( (resolve, reject) => {
     bcrypt.hash(password_plain, 10, (error, password_hashed) => {
       if(error) return reject({code: 500, message: error})
@@ -21,46 +21,24 @@ let hash_password = (password_plain) => {
 }
 
 
-
-
-
-let db_connection = () => {
-  return new Promise ( (resolve, reject) => {
-    mongodb.MongoClient.connect( mongodb.url, mongodb.options, (err, db) => {
-      if (err) return reject({code: 500, message: `Error conecting to the database`})
-      resolve(db)
-    })
-  })
-}
-
-let insert_user = (user) => {
+const insert_user = (user) => {
   return new Promise ( (resolve, reject) => {
 
-    db_connection()
+    mongodb.MongoClient.connect( mongodb.url, mongodb.options)
     .then( db => {
-
-      db.db(mongodb.db)
+      return db.db(mongodb.db)
       .collection(mongodb.collection)
-      .insertOne(user, (error, result) => {
-
-        db.close()
-
-        if (error) return reject({code: 500, message: `Error inserting user in the database`})
-
-        resolve(result)
-
-        console.log(`[MongoDB] User ${user.username} added to the database`)
-
-      })
+      .insertOne(user)
     })
-    .catch( error => { reject(error) } )
+    .then(resolve)
+    .catch(reject)
   })
 }
 
-let find_user = (identifier) => {
+const find_user = (identifier) => {
   return new Promise ( (resolve, reject) => {
 
-    db_connection()
+    mongodb.MongoClient.connect( mongodb.url, mongodb.options)
     .then( db => {
 
       // prepare the query
@@ -71,50 +49,37 @@ let find_user = (identifier) => {
         { _id: identifier },
       ]}
 
-      db.db(mongodb.db)
+      return db.db(mongodb.db)
       .collection(mongodb.collection)
-      .findOne(query, (error, user) => {
-
-        db.close()
-
-        if (error) return reject({code: 500, message: `Error querying user in the database`})
-
-        resolve(user)
-
-      })
+      .findOne(query)
     })
-    .catch( error => { reject(error) } )
+    .then(resolve)
+    .catch(reject)
   })
 }
 
-let delete_user = (user_id) => {
+const delete_user = (user_id) => {
   return new Promise ( (resolve, reject) => {
 
-    db_connection()
+    mongodb.MongoClient.connect( mongodb.url, mongodb.options)
     .then( db => {
 
       // prepare the query
       const query = { _id: user_id }
 
-      db.db(mongodb.db)
+      return db.db(mongodb.db)
       .collection(mongodb.collection)
-      .deleteOne(query, (error, result) => {
-
-        db.close()
-
-        if (error) return reject({code: 500, message: `Error deleting user from the database`})
-
-        resolve('OK')
-
-        console.log(`[MongoDB] User ${user_id} deleted from the database`)
-
-      })
+      .deleteOne(query)
     })
-    .catch( error => { reject(error) } )
+    .then(result => {
+      resolve('OK')
+      console.log(`[MongoDB] User ${user_id} deleted from the database`)
+    })
+    .catch(reject)
   })
 }
 
-let get_user_id = (req) => {
+const get_user_id = (req) => {
 
   return new Promise ( (resolve, reject) => {
     let user_id = req.params.user_id
@@ -127,7 +92,7 @@ let get_user_id = (req) => {
 
 }
 
-let update_user = (user_id, new_user_properties, current_user) => {
+const update_user = (user_id, new_user_properties, current_user) => {
   return new Promise ( (resolve, reject) => {
 
     // prevent users from modifying other users
@@ -161,31 +126,25 @@ let update_user = (user_id, new_user_properties, current_user) => {
       return reject({code: 403, message: `The following fields cannot be modified: ${unauthorized_attempts.join(', ')}`})
     }
 
-    db_connection()
+    mongodb.MongoClient.connect( mongodb.url, mongodb.options)
     .then( db => {
 
       const query = { _id: user_id }
       const action = {$set: new_user_properties}
 
-      db.db(mongodb.db)
+      return db.db(mongodb.db)
       .collection(mongodb.collection)
-      .updateOne(query, action, (error, result) => {
-
-        db.close()
-
-        if (error) return reject({code: 500, message: `Error updating user ${user_id}`})
-
-        resolve(`User ${user_id} updated`)
-
-        console.log(`[MongoDB] User ${user_id} updated`)
-
-      })
+      .updateOne(query, action)
     })
-    .catch( error => { reject(error) } )
+    .then(result => {
+      resolve(`User ${user_id} updated`)
+      console.log(`[MongoDB] User ${user_id} updated`)
+    })
+    .catch(reject)
   })
 }
 
-let check_password = (password_plain, user) => {
+const check_password = (password_plain, user) => {
   return new Promise ( (resolve, reject) => {
 
     const password_hashed = user.password_hashed
@@ -205,28 +164,17 @@ let check_password = (password_plain, user) => {
 
 exports.get_users = (req, res) => {
 
-  const limit = req.query.limit || 0
+  const limit = req.query.limit || 500
 
-  db_connection()
+  mongodb.MongoClient.connect( mongodb.url, mongodb.options)
   .then( db => {
-
-    db.db(mongodb.db)
+    return db.db(mongodb.db)
     .collection(mongodb.collection)
     .find({})
     .limit(limit)
-    .toArray((error, users) => {
-
-      // Close the connection to the DB
-      db.close()
-
-      // Handle DB errors
-      if (error) throw {code: 500, message: error}
-
-      res.send(users)
-
-    })
-
+    .toArray()
   })
+  .then(res.send)
   .catch( error => { error_handling(error, res) })
 
 }
@@ -270,7 +218,7 @@ exports.create_user = (req, res) => {
     return insert_user(user)
 
   })
-  .then( result => { res.send(result) })
+  .then( res.send )
   .catch( error => { error_handling(error, res) })
 
 }
@@ -289,8 +237,8 @@ exports.get_user = (req, res) => {
 
 exports.delete_user = (req, res) => {
   get_user_id(req)
-  .then( user_id => { return delete_user(user_id) } )
-  .then( result => { res.send(result) } )
+  .then( delete_user )
+  .then( res.send )
   .catch( error => { error_handling(error, res) })
 }
 
@@ -303,7 +251,7 @@ exports.update_user = (req, res) => {
   .then( user_id => {
     return update_user(user_id, new_user_properties, current_user)
   })
-  .then( result => { res.send(result) } )
+  .then( res.send )
   .catch( error => { error_handling(error, res) })
 }
 
@@ -361,7 +309,7 @@ exports.update_password = (req, res) => {
     const new_user_properties = {password_hashed: password_hashed}
     return update_user(target_user_id, new_user_properties, current_user)
   })
-  .then( result => {res.send(result)})
+  .then( res.send )
   .catch( error => { error_handling(error, res) })
 
 }
