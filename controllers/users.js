@@ -82,7 +82,7 @@ const delete_user = (user_id) => {
 const get_user_id = (req) => {
 
   return new Promise ( (resolve, reject) => {
-    let user_id = req.params.user_id
+    const user_id = req.params.user_id
 
     if(!user_id) return reject({code:400, message: `Missing user ID`})
 
@@ -164,9 +164,9 @@ const check_password = (password_plain, user) => {
 
 exports.get_users = (req, res) => {
 
-  const limit = req.query.limit || 500
+  const limit = req.query.limit ?? 500
 
-  mongodb.MongoClient.connect( mongodb.url, mongodb.options)
+  mongodb.MongoClient.connect(mongodb.url, mongodb.options)
   .then( db => {
     return db.db(mongodb.db)
     .collection(mongodb.collection)
@@ -174,7 +174,7 @@ exports.get_users = (req, res) => {
     .limit(limit)
     .toArray()
   })
-  .then(res.send)
+  .then( (result) => { res.send(result) })
   .catch( error => { error_handling(error, res) })
 
 }
@@ -218,7 +218,7 @@ exports.create_user = (req, res) => {
     return insert_user(user)
 
   })
-  .then( res.send )
+  .then( (result) => { res.send(result) })
   .catch( error => { error_handling(error, res) })
 
 }
@@ -238,7 +238,7 @@ exports.get_user = (req, res) => {
 exports.delete_user = (req, res) => {
   get_user_id(req)
   .then( delete_user )
-  .then( res.send )
+  .then( (result) => { res.send(result) })
   .catch( error => { error_handling(error, res) })
 }
 
@@ -251,7 +251,7 @@ exports.update_user = (req, res) => {
   .then( user_id => {
     return update_user(user_id, new_user_properties, current_user)
   })
-  .then( res.send )
+  .then( (result) => { res.send(result) })
   .catch( error => { error_handling(error, res) })
 }
 
@@ -309,7 +309,7 @@ exports.update_password = (req, res) => {
     const new_user_properties = {password_hashed: password_hashed}
     return update_user(target_user_id, new_user_properties, current_user)
   })
-  .then( res.send )
+  .then( (result) => { res.send(result) })
   .catch( error => { error_handling(error, res) })
 
 }
