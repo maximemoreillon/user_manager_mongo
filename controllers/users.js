@@ -147,7 +147,7 @@ const update_user = (user_id, new_user_properties, current_user) => {
 const check_password = (password_plain, user) => {
   return new Promise ( (resolve, reject) => {
 
-    const password_hashed = user.password_hashed
+    const {password_hashed} = user
 
     bcrypt.compare(password_plain, password_hashed, (error, password_correct) => {
 
@@ -183,10 +183,8 @@ exports.get_users = (req, res) => {
 
 exports.create_user = (req, res) => {
 
-  // Could do a better job at parsing that
-  const username = req.body.username
-  const email_address = req.body.email_address
-  const password_plain = req.body.password
+  // Destructuring
+  const { username, email_address, password } = req.body
 
   if(! (username || email_address) ) {
     let error_message = `Missing username or email_address`
@@ -195,7 +193,7 @@ exports.create_user = (req, res) => {
     return
   }
 
-  if(!password_plain ) {
+  if(!password ) {
     let error_message = `Missing password`
     console.log(error_message)
     res.status(400).send(error_message)
@@ -205,14 +203,14 @@ exports.create_user = (req, res) => {
   find_user(username || email_address)
   .then( user => {
     if(user) throw {code: 400, message: 'User already exists'}
-    return hash_password(password_plain)
+    return hash_password(password)
   })
   .then( password_hashed => {
 
     const user = {
-      username: username,
-      email_address: email_address,
-      password_hashed: password_hashed,
+      username,
+      email_address,
+      password_hashed,
     }
 
     return insert_user(user)
@@ -280,33 +278,33 @@ exports.update_password = (req, res) => {
   .then( user => {
     // Checking current password
 
-    const current_password_plain = req.body.current_password
+    const { current_password } = req.body
+    const { password_hashed } = user
 
     // guard against missing current password
-    if(!current_password_plain) throw {code: 400, message: `Current password not provided`}
-    let password_hashed = user.password_hashed
-    return check_password(current_password_plain, user)
+    if(!current_password) throw {code: 400, message: `Current password not provided`}
+
+    return check_password(current_password, user)
   })
   .then( user => {
     // Hashing new password
 
-    const new_password_plain = req.body.new_password
-    const new_password_confirm = req.body.new_password_confirm
+    const { new_password, new_password_confirm } = req.body
 
-    if(!new_password_plain) throw {code: 400, message: `New password not provided`}
+    if(!new_password) throw {code: 400, message: `New password not provided`}
     if(!new_password_confirm) throw {code: 400, message: `New password confirm not provided`}
-    if(new_password_confirm !== new_password_plain) {
+    if(new_password_confirm !== new_password) {
       throw {code: 400, message: `New password confirm does not match new password`}
     }
 
     // Add more conditions on password here
 
-    return hash_password(new_password_plain)
+    return hash_password(new_password)
   })
   .then( password_hashed => {
     // Updating user with new password
 
-    const new_user_properties = {password_hashed: password_hashed}
+    const new_user_properties = { password_hashed }
     return update_user(target_user_id, new_user_properties, current_user)
   })
   .then( (result) => { res.send(result) })
@@ -320,14 +318,14 @@ exports.update_password = (req, res) => {
 // Administrator acccount creation
 exports.create_admin = () => {
 
-  const admin_username = 'admin'
+  const admin_username = process.env.DEFAULT_ADMIN_USERNAME || 'admin'
 
   find_user(admin_username)
   .then( user => {
     // Using throw might not be the best way
     if(user) throw 'Admin account already exists'
 
-    let admin_password = process.env.DEFAULT_ADMIN_PASSWORD || 'admin'
+    const admin_password = process.env.DEFAULT_ADMIN_PASSWORD || 'admin'
 
     return hash_password(admin_password)
   })
@@ -335,8 +333,8 @@ exports.create_admin = () => {
 
     const user = {
       username: admin_username,
-      password_hashed: password_hashed,
       admin: true,
+      password_hashed,
     }
 
     return insert_user(user)
