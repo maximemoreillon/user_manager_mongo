@@ -9,7 +9,6 @@ const error_handling = (error, res) => {
   res.status(error.code || 500).send(error.message || error)
 }
 
-
 const hash_password = (password_plain) => {
   return new Promise ( (resolve, reject) => {
     bcrypt.hash(password_plain, 10, (error, password_hashed) => {
@@ -22,69 +21,50 @@ const hash_password = (password_plain) => {
 
 
 const insert_user = (user) => {
-  return new Promise ( (resolve, reject) => {
-
-    mongodb.MongoClient.connect( mongodb.url, mongodb.options)
-    .then( db => {
-      return db.db(mongodb.db)
-      .collection(mongodb.collection)
-      .insertOne(user)
-    })
-    .then(resolve)
-    .catch(reject)
+  return mongodb.MongoClient.connect( mongodb.url, mongodb.options)
+  .then( db => {
+    return db.db(mongodb.db)
+    .collection(mongodb.collection)
+    .insertOne(user)
   })
 }
 
 const find_user = (identifier) => {
-  return new Promise ( (resolve, reject) => {
+  return mongodb.MongoClient.connect( mongodb.url, mongodb.options)
+  .then( db => {
 
-    mongodb.MongoClient.connect( mongodb.url, mongodb.options)
-    .then( db => {
+    // prepare the query
+    const query = { $or: [
+      { username: identifier },
+      { email_address: identifier },
+      { email: identifier },
+      { _id: identifier },
+    ]}
 
-      // prepare the query
-      const query = { $or: [
-        { username: identifier },
-        { email_address: identifier },
-        { email: identifier },
-        { _id: identifier },
-      ]}
-
-      return db.db(mongodb.db)
-      .collection(mongodb.collection)
-      .findOne(query)
-    })
-    .then(resolve)
-    .catch(reject)
+    return db.db(mongodb.db)
+    .collection(mongodb.collection)
+    .findOne(query)
   })
 }
 
 const delete_user = (user_id) => {
-  return new Promise ( (resolve, reject) => {
-
-    mongodb.MongoClient.connect( mongodb.url, mongodb.options)
-    .then( db => {
-
-      // prepare the query
-      const query = { _id: user_id }
-
-      return db.db(mongodb.db)
-      .collection(mongodb.collection)
-      .deleteOne(query)
-    })
-    .then(result => {
-      resolve('OK')
-      console.log(`[MongoDB] User ${user_id} deleted from the database`)
-    })
-    .catch(reject)
+  return mongodb.MongoClient.connect( mongodb.url, mongodb.options)
+  .then( db => {
+    const query = { _id: user_id }
+    return db.db(mongodb.db)
+    .collection(mongodb.collection)
+    .deleteOne(query)
   })
 }
 
-const get_user_id = (req) => {
+const get_user_id = (req, res) => {
 
   return new Promise ( (resolve, reject) => {
-    const user_id = req.params.user_id
+    let user_id = req.params.user_id
+    if(user_id === 'self') user_id = res.locals.user._id
 
     if(!user_id) return reject({code:400, message: `Missing user ID`})
+
 
     try { resolve( mongodb.ObjectID(user_id) ) }
     catch (e) { return reject({code:400, message: `Invalid ID`}) }
@@ -93,55 +73,49 @@ const get_user_id = (req) => {
 }
 
 const update_user = (user_id, new_user_properties, current_user) => {
-  return new Promise ( (resolve, reject) => {
 
-    // prevent users from modifying other users
-    if(!current_user.admin && current_user._id !== user_id.toString() ) {
-      return reject({code: 403, message: `Cannot modify another user`})
-    }
+  // prevent users from modifying other users
+  if(!current_user.admin && current_user._id !== user_id.toString() ) {
+    return reject({code: 403, message: `Cannot modify another user`})
+  }
 
-    // Prevent users from modifying certain fields
-    let customizable_fields = [
-      'display_name',
-      'password_hashed',
+  // Prevent users from modifying certain fields
+  let customizable_fields = [
+    'display_name',
+    'password_hashed',
+  ]
+
+  // Adding customizable fields for administrators
+  if(current_user.admin) {
+    customizable_fields = [
+      ...customizable_fields,
+      'admin',
+      'locked',
     ]
+  }
 
-    // Adding customizable fields for administrators
-    if(current_user.admin) {
-      customizable_fields = [
-        ...customizable_fields,
-        'admin',
-        'locked',
-      ]
+  let unauthorized_attempts = []
+  for (let [key, value] of Object.entries(new_user_properties)) {
+    if(!customizable_fields.includes(key)) {
+      unauthorized_attempts.push(key)
     }
+  }
 
-    let unauthorized_attempts = []
-    for (let [key, value] of Object.entries(new_user_properties)) {
-      if(!customizable_fields.includes(key)) {
-        unauthorized_attempts.push(key)
-      }
-    }
+  if(unauthorized_attempts.length > 0) {
+    return reject({code: 403, message: `The following fields cannot be modified: ${unauthorized_attempts.join(', ')}`})
+  }
 
-    if(unauthorized_attempts.length > 0) {
-      return reject({code: 403, message: `The following fields cannot be modified: ${unauthorized_attempts.join(', ')}`})
-    }
+  return mongodb.MongoClient.connect( mongodb.url, mongodb.options)
+  .then( db => {
 
-    mongodb.MongoClient.connect( mongodb.url, mongodb.options)
-    .then( db => {
+    const query = { _id: user_id }
+    const action = {$set: new_user_properties}
 
-      const query = { _id: user_id }
-      const action = {$set: new_user_properties}
-
-      return db.db(mongodb.db)
-      .collection(mongodb.collection)
-      .updateOne(query, action)
-    })
-    .then(result => {
-      resolve(`User ${user_id} updated`)
-      console.log(`[MongoDB] User ${user_id} updated`)
-    })
-    .catch(reject)
+    return db.db(mongodb.db)
+    .collection(mongodb.collection)
+    .updateOne(query, action)
   })
+
 }
 
 const check_password = (password_plain, user) => {
@@ -164,18 +138,38 @@ const check_password = (password_plain, user) => {
 
 exports.get_users = (req, res) => {
 
-  const limit = req.query.limit ?? 500
+  let limit = req.query.limit ?? 500
+  limit = Number(limit)
+  if(limit === -1) limit = 0
+  const skip = req.query.skip ?? 0
 
   mongodb.MongoClient.connect(mongodb.url, mongodb.options)
   .then( db => {
     return db.db(mongodb.db)
     .collection(mongodb.collection)
     .find({})
+    .skip(Number(skip))
     .limit(limit)
     .toArray()
   })
-  .then( (result) => { res.send(result) })
+  .then( (result) => { 
+    console.log(`[MongoDB] User list queried`)
+    res.send(result)
+   })
   .catch( error => { error_handling(error, res) })
+
+}
+
+exports.get_user_count = (req, res) => {
+
+  mongodb.MongoClient.connect(mongodb.url, mongodb.options)
+    .then(db => {
+      return db.db(mongodb.db)
+        .collection(mongodb.collection)
+        .countDocuments()
+    })
+    .then((result) => { res.send({user_count: result}) })
+    .catch(error => { error_handling(error, res) })
 
 }
 
@@ -216,17 +210,21 @@ exports.create_user = (req, res) => {
     return insert_user(user)
 
   })
-  .then( (result) => { res.send(result) })
+  .then( (result) => {
+    console.log(`[MongoDB] User created`)
+    res.send(result)
+   })
   .catch( error => { error_handling(error, res) })
 
 }
 
 exports.get_user = (req, res) => {
 
-  get_user_id(req)
-  .then( user_id => { return find_user(user_id) } )
+  get_user_id(req,res)
+  .then(find_user)
   .then( user => {
     if(!user) throw {code: 400, message: `User not found`}
+    console.log(`[MongoDB] User queried`)
     res.send(user)
   })
   .catch( error => { error_handling(error, res) })
@@ -234,9 +232,12 @@ exports.get_user = (req, res) => {
 }
 
 exports.delete_user = (req, res) => {
-  get_user_id(req)
+  get_user_id(req,res)
   .then( delete_user )
-  .then( (result) => { res.send(result) })
+  .then( (result) => {
+    console.log(`[MongoDB] User deleted`)
+    res.send(result)
+   })
   .catch( error => { error_handling(error, res) })
 }
 
@@ -245,11 +246,14 @@ exports.update_user = (req, res) => {
   const new_user_properties = req.body
   const current_user = res.locals.user
 
-  get_user_id(req)
+  get_user_id(req,res)
   .then( user_id => {
     return update_user(user_id, new_user_properties, current_user)
   })
-  .then( (result) => { res.send(result) })
+  .then( (result) => {
+    console.log(`[MongoDB] User updated`)
+    res.send(result)
+   })
   .catch( error => { error_handling(error, res) })
 }
 
@@ -259,10 +263,17 @@ exports.update_password = (req, res) => {
 
   let target_user_id = null // made global to access in further scopes
 
-  get_user_id(req)
-  .then( user_id => {
-    // Finding user in the DB
+  const { current_password, new_password, new_password_confirm  } = req.body
 
+  if(!current_password) return res.status(400).send(`Current password not provided`)
+  if(!new_password) return res.status(400).send(`New password not provided`)
+  if(!new_password_confirm) return res.status(400).send(`New password confirm not provided`)
+  if(new_password_confirm !== new_password) {
+    return res.status(400).send(`New password confirm does not match new password`)
+  }
+
+  get_user_id(req,res)
+  .then( user_id => {
     // scope extraction
     target_user_id = user_id
 
@@ -272,38 +283,18 @@ exports.update_password = (req, res) => {
     }
 
     return find_user(user_id)
-
   })
 
   .then( user => {
-    // Checking current password
-
-    const { current_password } = req.body
     const { password_hashed } = user
-
-    // guard against missing current password
-    if(!current_password) throw {code: 400, message: `Current password not provided`}
-
     return check_password(current_password, user)
   })
   .then( user => {
     // Hashing new password
-
-    const { new_password, new_password_confirm } = req.body
-
-    if(!new_password) throw {code: 400, message: `New password not provided`}
-    if(!new_password_confirm) throw {code: 400, message: `New password confirm not provided`}
-    if(new_password_confirm !== new_password) {
-      throw {code: 400, message: `New password confirm does not match new password`}
-    }
-
-    // Add more conditions on password here
-
     return hash_password(new_password)
   })
   .then( password_hashed => {
     // Updating user with new password
-
     const new_user_properties = { password_hashed }
     return update_user(target_user_id, new_user_properties, current_user)
   })
