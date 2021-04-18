@@ -1,5 +1,7 @@
 # User Manager (MongoDB version)
 
+⚠️ THIS PROJECT IS DEPRECATED ⚠️
+
 ## API
 | Route | Method | query/body | Description |
 | --- | --- | --- | --- |
